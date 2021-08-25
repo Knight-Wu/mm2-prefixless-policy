@@ -25,32 +25,63 @@ public class PrefixlessReplicationPolicy extends DefaultReplicationPolicy {
 
   private static final Logger log = LoggerFactory.getLogger(PrefixlessReplicationPolicy.class);
 
-  private String sourceClusterAlias;
+  public static final String SOURCE_CLUSTER_ALIAS_CONFIG = "source.cluster.alias";
 
-  @Override
-  public void configure(Map<String, ?> props) {
-    super.configure(props);
-    sourceClusterAlias = (String) props.get(MirrorConnectorConfig.SOURCE_CLUSTER_ALIAS);
-    if (sourceClusterAlias == null) {
-      String logMessage = String.format("Property %s not found", MirrorConnectorConfig.SOURCE_CLUSTER_ALIAS);
-      log.error(logMessage);
-      throw new RuntimeException(logMessage);
+    private String sourceClusterAlias = null;
+
+    @Override
+    public void configure(Map<String, ?> props) {
+        super.configure(props);
+        if (props.containsKey(SOURCE_CLUSTER_ALIAS_CONFIG)) {
+            sourceClusterAlias = (String) props.get(SOURCE_CLUSTER_ALIAS_CONFIG);
+            log.info("Using source cluster alias `{}`.", sourceClusterAlias);
+        }
     }
-  }
 
-  @Override
-  public String formatRemoteTopic(String sourceClusterAlias, String topic) {
-    return topic;
-  }
+    /** Unlike DefaultReplicationPolicy, IdentityReplicationPolicy does not include the source
+      * cluster alias in the remote topic name. Instead, topic names are unchanged.
+      *
+      * In the special case of heartbeats, we defer to DefaultReplicationPolicy.
+      */
+    @Override
+    public String formatRemoteTopic(String sourceClusterAlias, String topic) {
+        if (looksLikeHeartbeat(topic)) {
+            return super.formatRemoteTopic(sourceClusterAlias, topic);
+        } else {
+            return topic;
+        }
+    }
 
-  @Override
-  public String topicSource(String topic) {
-    return topic == null ? null : sourceClusterAlias;
-  }
+    /** Unlike DefaultReplicationPolicy, IdendityReplicationPolicy cannot know the source of
+      * a remote topic based on its name alone. If `source.cluster.alias` is provided,
+      * `topicSource` will return that.
+      *
+      * In the special case of heartbeats, we defer to DefaultReplicationPolicy.
+      */
+    @Override
+    public String topicSource(String topic) {
+        if (looksLikeHeartbeat(topic)) {
+            return super.topicSource(topic);
+        } else {
+            return sourceClusterAlias;
+        }
+    }
 
-  @Override
-  public String upstreamTopic(String topic) {
-    return null;
-  }
+    /** Since any topic may be a "remote topic", this just returns `topic`.
+      *
+      * In the special case of heartbeats, we defer to DefaultReplicationPolicy.
+      */
+    @Override
+    public String upstreamTopic(String topic) {
+        if (looksLikeHeartbeat(topic)) {
+            return super.upstreamTopic(topic);
+        } else {
+            return topic;
+        }
+    }
+
+    private boolean looksLikeHeartbeat(String topic) {
+        return topic != null && topic.endsWith(MirrorClientConfig.HEARTBEATS_TOPIC);
+    }
 
 }
